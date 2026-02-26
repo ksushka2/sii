@@ -1,0 +1,47 @@
+#Списки олимпиад и оценки за экзамен
+with open ("1.txt", 'r', encoding='utf-8') as f1:
+    fam1 = f1.read().splitlines()
+
+with open ("2.txt", 'r', encoding='utf-8') as f2:
+    fam2 = f2.read().splitlines()
+
+a = []
+
+for i in fam1:
+    data = i.split()
+    lastname = data[0]
+    if len(data)>1:
+        a.append([lastname, 5])
+    else:
+        a.append([lastname, 0.5])
+
+for i in fam2:
+    data = i.split()
+    lastname = data[0]
+    if len(data)>1:
+        a.append([lastname, 5])
+    else:
+        a.append([lastname, 0.5])
+
+score = {}
+
+for familia, ocenka in a:
+    if familia in score:
+        score[familia] += ocenka
+    else:
+        score[familia] = ocenka
+
+result = []
+
+for familia, ocenka in score.items():
+    if ocenka == 10:
+        result.append([familia, 5])
+    elif ocenka == 5.5:
+        result.append([familia, 4])
+    elif ocenka == 1:
+        result.append([familia, 3])
+    else:
+        result.append([familia, "д"])
+
+for i in result:
+    print(*i)
