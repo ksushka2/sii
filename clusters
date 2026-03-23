@@ -1,0 +1,386 @@
+#Имеется карта с городами. Распределить города по К кластерам по принципу
+#минимального расстояния. Описание метода (модель), структура данных, алгоритмы, программа.
+
+import time
+import random
+import numpy as np
+from sklearn.cluster import KMeans
+
+#читаем города из файла и возвращаем список списков [[название х у]]
+def read_cities(file):
+    try:
+        with open(file, "r", encoding='utf-8') as f:
+            lines = f.read().splitlines()
+    except FileNotFoundError:
+        print("Ошибка: файл не найден!")
+        return []
+    except Exception as e:
+        print("Ошибка ", e)
+        return []
+
+    cities = []
+    for l in lines:
+        data = l.split()
+
+        try:
+            cities.append([data[0], float(data[1]), float(data[2])])
+        except ValueError:
+            print("Ошибка в формате координат!")
+            continue
+
+    return cities
+
+#евклидово расстояние между 2 точками
+def euclid_dist(x1y1, x2y2):
+    x1, y1 = x1y1[-2], x1y1[-1]
+    x2, y2 = x2y2[-2], x2y2[-1]
+
+    return ((x1 - x2)**2 + (y1 - y2)**2)**0.5
+
+#строим матрицу смежности, считаем расстояния через euclid_dist()
+def matrix(cities):
+    n = len(cities)
+    distanceMatrix = [[0]*n for _ in range(n)]
+
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                distanceMatrix[i][j] = euclid_dist(cities[i], cities[j])
+    return distanceMatrix
+
+def algoritm_clusters(k):
+    print("\nАлгоритмический подход")
+    print()
+    startTime = time.time()
+
+    cities = read_cities('gorod.txt')
+
+    if not cities:
+        print("Ошибка: нет данных о городах!")
+        return 0
+
+    n = len(cities)
+    # Создали матрицу смежности
+    distMatrix = matrix(cities)
+    
+    # Посчитали самый центральный город - первый центроид
+    sumDistances = [sum(distMatrix[i]) for i in range(n)]
+    firstCentroidIdx = sumDistances.index(min(sumDistances))
+
+    centroidsIndices = [firstCentroidIdx]
+    centroidNames = [cities[firstCentroidIdx][0]]
+
+    # Пока не нашли все центроиды
+    while len(centroidsIndices) < k:
+        distanse = -1
+        centroidIdx = -1
+
+        for i in range(n):
+            if i in centroidsIndices:
+                continue
+            
+            # Ищем максимальное растояние от существующих центроидов 
+            minToCentroid = float("inf")
+
+            for jC in centroidsIndices:
+                dist = distMatrix[i][jC]
+                if dist < minToCentroid:
+                    minToCentroid = dist
+            if minToCentroid > distanse:
+                distanse = minToCentroid
+                # запоминаем индекс города центроида
+                centroidIdx = i
+
+        if centroidIdx != -1:
+            centroidsIndices.append(centroidIdx)
+            centroidNames.append(cities[centroidIdx][0])
+
+    # Словарь для хранения кластеров Центроид: города
+    clustersDict = {cityName:[] for cityName in centroidNames}
+
+    for i in range(n):
+        if cities[i][0] in centroidNames:
+            continue
+
+        cityName = cities[i][0]
+        minDist = float('inf')
+        bestCentroid = None
+
+        for jC in centroidsIndices:
+            dist = distMatrix[i][jC]
+            if dist < minDist:
+                minDist = dist
+                bestCentroid = cities[jC][0]
+
+        if bestCentroid:
+            clustersDict[bestCentroid].append(cityName)
+
+    for centroidName in centroidNames:
+        for city in cities:
+            if city[0] == centroidName:
+                centroidsCoords = [city[1], city[2]]
+
+        print("\nКластер: ", centroidName)
+        print("Координаты центроида: ", centroidsCoords[0], centroidsCoords[1])
+        print("Города в кластере: ")
+
+        citiesInClusters = clustersDict[centroidName]
+        if citiesInClusters:
+            for cityName in citiesInClusters:
+                for cityData in cities:
+                    if cityData[0] == cityName:
+                        dist = euclid_dist(cityData, centroidsCoords)
+                        print(f"     {cityName}: растояние до центроида = {dist}")
+        else:
+            print("     Нет")
+    print()
+
+    endTime = time.time()
+
+    allTime = endTime - startTime
+
+    return allTime
+
+def to_cluster(cities, centroids):
+    clusters = [[] for _ in range(len(centroids))]
+    
+    #Для каждого города ищем центроид до которого минимальное растояние
+    for city in cities:
+        minDistance = float('inf')
+        closestIdx = -1
+
+        for idx, centroid in enumerate(centroids):
+            dist = euclid_dist(city, centroid)
+            if dist < minDistance:
+                minDistance = dist
+                closestIdx = idx
+        
+        #Запоминаем индекс и добавляем город к кластеру по индексу центроида
+        clusters[closestIdx].append(city)
+
+    return clusters
+
+def create_new_centroids(clusters):
+    newСentroids = []
+
+    #Отцентровка кластеров - считаем среднее значение
+    for cluster in clusters:
+        if cluster:
+            sumX = sum(city[1] for city in cluster)
+            sumY = sum(city[2] for city in cluster)
+            count = len(cluster)
+            #отцентровали новый центроид
+            newСentroids.append([sumX / count, sumY / count])
+        else:
+            newСentroids.append([0, 0])
+
+    return newСentroids
+
+
+def k_means_clusters():
+    print("\nК-средних итеративный подход")
+    print()
+    random.seed(42)
+
+    startTime = time.time()
+
+    cities = read_cities('gorod.txt')
+
+    if not cities:
+        print("Ошибка: нет данных о городах!")
+        return 0
+
+    wcssValues = []
+    kValues = []
+
+    k = 1
+    #Локоть, считаем от 1 до количества городов в списке
+    while k < len(cities):
+        #Выполняем кластеризацию для всех к
+        randomCentroids = random.sample(cities, k)
+        centroids = [[point[1], point[2]] for point in randomCentroids]
+
+        for iteration in range(10):
+            clusters = to_cluster(cities, centroids)
+            newCentroids = create_new_centroids(clusters)
+
+            changed = False
+            for i in range(k):
+                if (abs(newCentroids[i][0] - centroids[i][0]) > 0.0001 or
+                        abs(newCentroids[i][1] - centroids[i][1]) > 0.0001):
+                    changed = True
+                    break
+
+            centroids = newCentroids
+            if not changed:
+                break
+
+        clusters = to_cluster(cities, centroids)
+        wcss = 0
+        for i in range(k):
+            for city in clusters[i]:
+                dist = euclid_dist(city, centroids[i])
+                wcss += dist ** 2
+
+        wcssValues.append(wcss)
+        kValues.append(k)
+
+        k += 1
+
+    optimalK = 1
+    if len(wcssValues) >= 3:
+        maxChange = -float('inf')
+        bestK = 1
+
+        for i in range(1, len(wcssValues) - 1):
+            decrease_prev = wcssValues[i - 1] - wcssValues[i]
+            decrease_next = wcssValues[i] - wcssValues[i + 1]
+
+            change = decrease_prev - decrease_next
+
+            # Ищем где изменение разности максимальное
+            if change > maxChange:
+                maxChange = change
+                bestK = kValues[i]
+
+        optimalK = bestK
+
+    randomCentroids = random.sample(cities, optimalK)
+    centroids = [[point[1], point[2]] for point in randomCentroids]
+
+    for iteration in range(10):
+        clusters = to_cluster(cities, centroids)
+        newCentroids = create_new_centroids(clusters)
+
+        # Проверка сходимости
+        changed = False
+        for i in range(optimalK):
+            if (abs(newCentroids[i][0] - centroids[i][0]) > 0.0001 or
+                    abs(newCentroids[i][1] - centroids[i][1]) > 0.0001):
+                changed = True
+                break
+
+        centroids = newCentroids
+        if not changed:
+            break
+
+    clustersDict = {}
+    for i in range(optimalK):
+        clusterName = f"Кластер{i + 1}"
+        clustersDict[clusterName] = []
+
+    for i in range(optimalK):
+        clusterName = f"Кластер{i + 1}"
+        for city in clusters[i]:
+            clustersDict[clusterName].append(city[0])
+
+    for i, (clusterName, cityNames) in enumerate(clustersDict.items()):
+        print(f"\n{clusterName}")
+        print(f"Координаты центроида: {centroids[i][0]} {centroids[i][1]}")
+        print(f"Города в кластере:")
+
+        if cityNames:
+            for cityName in cityNames:
+                for city in cities:
+                    if city[0] == cityName:
+                        distance = euclid_dist(city, centroids[i])
+                        print(f"    {cityName}: расстояние до центроида = {distance:.2f}")
+                        break
+        else:
+            print("     Нет")
+    #print("Оптимальное количество центроидов: ", optimalK)
+    endTime = time.time()
+
+    allTime = endTime - startTime
+
+    return allTime
+
+def k_means_sklearn():
+    print("\nК-средних через sklearn")
+    print()
+
+    startTime = time.time()
+
+    citiesData = read_cities("gorod.txt")
+
+    if not citiesData:
+        print("Ошибка: нет данных о городах!")
+        return 0
+
+    cities = [c[0] for c in citiesData]
+
+    XList = [[float(d[1]), float(d[2])] for d in citiesData]
+    X = np.array(XList)
+
+    wcssValues = []
+    kValues = []
+
+    for k in range(1, len(citiesData)):
+        kValues.append(k)
+        
+        kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
+        kmeans.fit(X)
+
+        # inertia_ - WCSS
+        wcss = kmeans.inertia_
+        wcssValues.append(wcss)
+
+    optimalK = 1
+    if len(wcssValues) >= 3:
+        maxChange = -float('inf')
+
+        for i in range(1, len(wcssValues) - 1):
+            decrease_prev = wcssValues[i - 1] - wcssValues[i]
+            decrease_next = wcssValues[i] - wcssValues[i + 1]
+
+            change = decrease_prev - decrease_next
+            if change > maxChange:
+                maxChange = change
+                optimalK = kValues[i]
+
+
+    kmeans = KMeans(n_clusters=optimalK, random_state=42).fit(X)
+
+    labels = kmeans.labels_
+    centroids = kmeans.cluster_centers_
+
+    clustersDict = {}
+    for i in range(optimalK):
+        clusterName = f"Кластер{i + 1}"
+        clustersDict[clusterName] = []
+
+    for i, cityName in enumerate(cities):
+        label = labels[i]
+        clusterName = f"Кластер{label + 1}"
+        clustersDict[clusterName].append(cityName)
+
+    for i, (clusterName, cityNames) in enumerate(clustersDict.items()):
+        print(f"\n{clusterName}")
+        print(f"Координаты центроида: {centroids[i][0]} {centroids[i][1]}")
+        print(f"Города в кластере:")
+
+        if cityNames:
+            for cityName in cityNames:
+                for j, city in enumerate(citiesData):
+                    if city[0] == cityName:
+                        point = X[j]
+                        centroid = centroids[i]
+                        distance = np.sqrt(np.sum((point - centroid) ** 2))
+                        print(f"    {cityName}: расстояние до центроида = {distance:.2f}")
+                        break
+        else:
+            print("    Нет")
+    endTime = time.time()
+
+    allTime = endTime - startTime
+
+    return allTime
+
+kol = int(input("Количество кластеров: "))
+
+if kol<0:
+    print("Ошибка: количество кластеров должно быть неотрицательным!")
+
+print("Алгоритмический подход: ",algoritm_clusters(kol))
+print("К-средних итеративный подход: ", k_means_clusters())
+print("К-средних через sklearn: ", k_means_sklearn())
