@@ -1,0 +1,155 @@
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+import numpy as np
+import matplotlib.pyplot as plt
+import time
+
+def read_obj(file):
+    try:
+        with open(file, "r", encoding='utf-8') as f:
+            lines = f.read().splitlines()
+    except FileNotFoundError:
+        print("Ошибка: файл не найден!")
+        return []
+    except Exception as e:
+        print("Ошибка ", e)
+        return []
+
+    objs = []
+    for o in lines:
+        data = o.split()
+
+        try:
+            objs.append([data[0], float(data[1]), float(data[2]), data[3]])
+        except ValueError:
+            print("Ошибка в формате координат!")
+            continue
+
+    return objs
+
+# евклидово расстояние между 2 точками
+def euclid_dist(x1, y1, x2, y2):
+    return ((x1 - x2) ** 2 + (y1 - y2) ** 2) ** 0.5
+
+def klassification_algoritm(nameO, iscom_x, iscom_y, k):
+    allObj = read_obj("objects.txt")
+
+    distances = []
+    for name, x, y, clas in allObj:
+        if name == nameO and x == iscom_x and y == iscom_y:
+            continue
+
+        dist = euclid_dist(iscom_x, iscom_y, x, y)
+        distances.append((dist, name, clas))
+
+    distances.sort(key=lambda x: x[0])
+    neig = distances[:k]
+
+    resDict = {}
+    for dist, name, clas in neig:
+        resDict[clas] = resDict.get(clas, 0) + 1
+
+    #print(resDict)
+    realClass = max(resDict, key = resDict.get)
+    #print(nameO, realClass)
+    return realClass, resDict
+
+def klassification_sklearn(nameO, iscom_x, iscom_y, k):
+    allObj = read_obj("objects.txt")
+    X = np.array([[o[1], o[2]] for o in allObj], dtype=float)
+    y = np.array([o[3] for o in allObj])
+    knn = KNeighborsClassifier(n_neighbors=k, metric="euclidean")
+    knn.fit(X, y)
+    predClass = knn.predict([[iscom_x, iscom_y]])[0]
+
+    # получаем индексы соседей
+    distances, indices = knn.kneighbors([[iscom_x, iscom_y]])
+
+    resDict = {}
+    for idx in indices[0]:
+        clas = allObj[idx][3]
+        resDict[clas] = resDict.get(clas, 0) + 1
+
+    return predClass, resDict
+
+def test_all_objects(k):
+    allObj = read_obj("objects.txt")
+    print(f"{'Название':12} | {'Ручной kNN':12} | {'Соседи ручной':40} | {'sklearn kNN':12} | {'Соседи scl':40} | Факт")
+    print()
+    names = []
+    y_true = []
+    y_pred_manual = []
+    y_pred_sklearn = []
+
+    for name, x, y, clas in allObj:
+        names.append(name)
+        y_true.append(clas)
+
+        pred_m, neigh_m = klassification_algoritm(name, x, y, k)
+        pred_s, neigh_s = klassification_sklearn(name, x, y, k)
+
+        y_pred_manual.append(pred_m)
+        y_pred_sklearn.append(pred_s)
+
+        print(f"{name:12} | {pred_m:12} | {str(neigh_m):40} | {pred_s:12} | {str(neigh_s):40} | {clas}")
+
+    return y_true, y_pred_manual, y_pred_sklearn
+
+def accuracy_alg(y_true, y_pred):
+    c = 0
+
+    for i, j in zip(y_true, y_pred):
+        if i == j:
+            c+=1
+    return c / len(y_true)
+
+def accuracy_sklearn(y_true, y_pred):
+    return accuracy_score(y_true, y_pred)
+
+def plot_objects_with_point(objects):
+    colors = {
+        "Фрукт": "green",
+        "Овощ": "blue",
+        "Протеин": "khaki",
+        "Зерно": "orange"
+    }
+
+    used_labels = set()
+
+    for name, x, y, clas in objects:
+        if clas not in used_labels:
+            plt.scatter(x, y, color=colors[clas], s=80, label=clas)
+            used_labels.add(clas)
+        else:
+            plt.scatter(x, y, color=colors[clas], s=80)
+
+    plt.xlabel("Сладость")
+    plt.ylabel("Хруст")
+    plt.title("Классификация продуктов")
+    plt.grid(True)
+    plt.legend(title = "Класс продукта",  loc="upper right")
+    plt.show()
+
+kol = int(input("Введите количество соседей: "))
+
+objects = read_obj("objects.txt")
+plot_objects_with_point(objects)
+
+start1 = time.time()
+for name, x, y, clas in objects:
+    klassification_algoritm(name, x, y, kol)
+print("Время ручного kNN:", time.time() - start1)
+
+start2 = time.time()
+for name, x, y, clas in objects:
+    klassification_sklearn(name, x, y, kol)
+print("Время sklearn kNN:", time.time() - start2)
+
+print("\nТочность:")
+y_true, y_pred_manual, y_pred_sklearn = test_all_objects(kol)
+accManual = accuracy_alg(y_true, y_pred_manual)
+accSklearn = accuracy_sklearn(y_true, y_pred_sklearn)
+
+print("\nВручную ", accManual)
+print("Через sclearn ", accSklearn)
