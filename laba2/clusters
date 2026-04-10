@@ -1,12 +1,13 @@
-#Имеется карта с городами. Распределить города по К кластерам по принципу
-#минимального расстояния. Описание метода (модель), структура данных, алгоритмы, программа.
+# Имеется карта с городами. Распределить города по К кластерам по принципу
+# минимального расстояния. Описание метода (модель), структура данных, алгоритмы, программа.
 
 import time
 import random
 import numpy as np
 from sklearn.cluster import KMeans
 
-#читаем города из файла и возвращаем список списков [[название х у]]
+
+# читаем города из файла и возвращаем список списков [[название х у]]
 def read_cities(file):
     try:
         with open(file, "r", encoding='utf-8') as f:
@@ -30,23 +31,39 @@ def read_cities(file):
 
     return cities
 
-#евклидово расстояние между 2 точками
+
+# евклидово расстояние между 2 точками
 def euclid_dist(x1y1, x2y2):
     x1, y1 = x1y1[-2], x1y1[-1]
     x2, y2 = x2y2[-2], x2y2[-1]
 
-    return ((x1 - x2)**2 + (y1 - y2)**2)**0.5
+    return ((x1 - x2) ** 2 + (y1 - y2) ** 2) ** 0.5
 
-#строим матрицу смежности, считаем расстояния через euclid_dist()
+
+# строим матрицу смежности, считаем расстояния через euclid_dist()
 def matrix(cities):
     n = len(cities)
-    distanceMatrix = [[0]*n for _ in range(n)]
+    distanceMatrix = [[0] * n for _ in range(n)]
 
     for i in range(n):
         for j in range(n):
             if i != j:
                 distanceMatrix[i][j] = euclid_dist(cities[i], cities[j])
     return distanceMatrix
+
+def average_distance_to_centroid(cluster, centroid):
+    """
+    cluster  – список городов в кластере: [[name, x, y], ...]
+    centroid – координаты центроида: [x, y]
+    """
+    if not cluster:
+        return 0
+
+    total_dist = 0
+    for city in cluster:
+        total_dist += euclid_dist(city, centroid)
+
+    return total_dist / len(cluster)
 
 def algoritm_clusters(k):
     print("\nАлгоритмический подход")
@@ -62,7 +79,7 @@ def algoritm_clusters(k):
     n = len(cities)
     # Создали матрицу смежности
     distMatrix = matrix(cities)
-    
+
     # Посчитали самый центральный город - первый центроид
     sumDistances = [sum(distMatrix[i]) for i in range(n)]
     firstCentroidIdx = sumDistances.index(min(sumDistances))
@@ -78,8 +95,8 @@ def algoritm_clusters(k):
         for i in range(n):
             if i in centroidsIndices:
                 continue
-            
-            # Ищем максимальное растояние от существующих центроидов 
+
+            # Ищем максимальное растояние от существующих центроидов
             minToCentroid = float("inf")
 
             for jC in centroidsIndices:
@@ -96,7 +113,7 @@ def algoritm_clusters(k):
             centroidNames.append(cities[centroidIdx][0])
 
     # Словарь для хранения кластеров Центроид: города
-    clustersDict = {cityName:[] for cityName in centroidNames}
+    clustersDict = {cityName: [] for cityName in centroidNames}
 
     for i in range(n):
         if cities[i][0] in centroidNames:
@@ -138,13 +155,18 @@ def algoritm_clusters(k):
     endTime = time.time()
 
     allTime = endTime - startTime
-
+    avg = average_distance_to_centroid(
+        [city for city in cities if city[0] in citiesInClusters],
+        centroidsCoords
+    )
+    print(f"Среднее расстояние до центроида: {avg:.2f}")
     return allTime
+
 
 def to_cluster(cities, centroids):
     clusters = [[] for _ in range(len(centroids))]
-    
-    #Для каждого города ищем центроид до которого минимальное растояние
+
+    # Для каждого города ищем центроид до которого минимальное растояние
     for city in cities:
         minDistance = float('inf')
         closestIdx = -1
@@ -154,22 +176,23 @@ def to_cluster(cities, centroids):
             if dist < minDistance:
                 minDistance = dist
                 closestIdx = idx
-        
-        #Запоминаем индекс и добавляем город к кластеру по индексу центроида
+
+        # Запоминаем индекс и добавляем город к кластеру по индексу центроида
         clusters[closestIdx].append(city)
 
     return clusters
 
+
 def create_new_centroids(clusters):
     newСentroids = []
 
-    #Отцентровка кластеров - считаем среднее значение
+    # Отцентровка кластеров - считаем среднее значение
     for cluster in clusters:
         if cluster:
             sumX = sum(city[1] for city in cluster)
             sumY = sum(city[2] for city in cluster)
             count = len(cluster)
-            #отцентровали новый центроид
+            # отцентровали новый центроид
             newСentroids.append([sumX / count, sumY / count])
         else:
             newСentroids.append([0, 0])
@@ -194,9 +217,9 @@ def k_means_clusters():
     kValues = []
 
     k = 1
-    #Локоть, считаем от 1 до количества городов в списке
+    # Локоть, считаем от 1 до количества городов в списке
     while k < len(cities):
-        #Выполняем кластеризацию для всех к
+        # Выполняем кластеризацию для всех к
         randomCentroids = random.sample(cities, k)
         centroids = [[point[1], point[2]] for point in randomCentroids]
 
@@ -288,12 +311,17 @@ def k_means_clusters():
                         break
         else:
             print("     Нет")
-    #print("Оптимальное количество центроидов: ", optimalK)
+    # print("Оптимальное количество центроидов: ", optimalK)
     endTime = time.time()
 
     allTime = endTime - startTime
 
+    clusterCities = [city for city in cities if city[0] in cityNames]
+    avg = average_distance_to_centroid(clusterCities, centroids[i])
+    print(f"Среднее расстояние до центроида: {avg:.2f}")
+
     return allTime
+
 
 def k_means_sklearn():
     print("\nК-средних через sklearn")
@@ -317,7 +345,7 @@ def k_means_sklearn():
 
     for k in range(1, len(citiesData)):
         kValues.append(k)
-        
+
         kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
         kmeans.fit(X)
 
@@ -337,7 +365,6 @@ def k_means_sklearn():
             if change > maxChange:
                 maxChange = change
                 optimalK = kValues[i]
-
 
     kmeans = KMeans(n_clusters=optimalK, random_state=42).fit(X)
 
@@ -374,13 +401,17 @@ def k_means_sklearn():
 
     allTime = endTime - startTime
 
+    clusterCities = [city for city in citiesData if city[0] in cityNames]
+    avg = average_distance_to_centroid(clusterCities, centroids[i])
+    print(f"Среднее расстояние до центроида: {avg:.2f}")
+
     return allTime
 
 kol = int(input("Количество кластеров: "))
 
-if kol<0:
+if kol < 0:
     print("Ошибка: количество кластеров должно быть неотрицательным!")
 
-print("Алгоритмический подход: ",algoritm_clusters(kol))
+print("Алгоритмический подход: ", algoritm_clusters(kol))
 print("К-средних итеративный подход: ", k_means_clusters())
 print("К-средних через sklearn: ", k_means_sklearn())
