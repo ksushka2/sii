@@ -1,0 +1,107 @@
+import time
+
+import pandas as pd
+import matplotlib.pyplot as plt
+
+from sklearn.model_selection import train_test_split, cross_val_score, StratifiedKFold
+from sklearn.neighbors import KNeighborsClassifier, RadiusNeighborsClassifier
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+from sklearn.metrics import ConfusionMatrixDisplay
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+
+#5. подготовить данные к обучению
+train = pd.read_csv('disease_train.csv')
+test = pd.read_csv('disease_public_test.csv')
+
+train.isnull().sum()
+
+X = train.drop("Y", axis=1)
+y = train["Y"]
+
+Xtrain, Xtest, ytrain, ytest = train_test_split(X, y, test_size=0.2, random_state=42)
+#6. обучение и оценкf моделей на сырых данных
+
+tk0 = time.time()
+knn = KNeighborsClassifier(n_neighbors=5)
+knn.fit(Xtrain, ytrain)
+predKnn = knn.predict(Xtest)
+TimeKnn = time.time() - tk0
+
+tr0 = time.time()
+rnn = RadiusNeighborsClassifier(radius=5.0, outlier_label=0)
+rnn.fit(Xtrain, ytrain)
+predRnn = rnn.predict(Xtest)
+TimeRnn = time.time() - tr0
+
+accuracyKNNstup = accuracy_score(predKnn, ytest)
+accuracyRNNstup = accuracy_score(predRnn, ytest)
+
+print("\nСырые данные")
+print(f"knn score: {accuracyKNNstup}")
+cmk = confusion_matrix(ytest, predKnn)
+cm_dfk = pd.DataFrame(cmk, index=["True 0", "True 1"], columns=["Pred 0", "Pred 1"])
+print(cm_dfk)
+print("Время knn:", TimeKnn)
+
+print(f"\nrnn score: {accuracyRNNstup}")
+cmr = confusion_matrix(ytest, predRnn)
+cm_dfr = pd.DataFrame(cmr, index=["True 0", "True 1"], columns=["Pred 0", "Pred 1"])
+print(cm_dfr)
+print("Время knn:", TimeRnn)
+
+#7. Провести предобработку данных
+pipeKnn = Pipeline([
+    ("scaler", StandardScaler()),
+    ("knn", KNeighborsClassifier(n_neighbors=5))
+])
+
+pipeRnn = Pipeline([
+    ("scaler", StandardScaler()),
+    ("rnn", RadiusNeighborsClassifier(radius=5.0, outlier_label=0))
+])
+
+cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+
+tkO0 = time.time()
+scoresKnn = cross_val_score(pipeKnn, X, y, cv=cv)
+TimeKnnObr = time.time() - tkO0
+
+trO0 = time.time()
+scoresRnn = cross_val_score(pipeRnn, X, y, cv=cv)
+TimeRnnObr = time.time() - trO0
+
+accuracyKNNobr = scoresKnn.mean()
+accuracyRNNobr = scoresRnn.mean()
+
+print("\nПосле обработки")
+print("knn accuracy:", accuracyKNNobr)
+print("Время knn:", TimeKnnObr)
+print("\nrnn accuracy:", accuracyRNNobr)
+print("Время rnn:", TimeRnnObr)
+
+methods = ["Rude", "CV + Scaling"]
+knnScores = [accuracyKNNstup, accuracyKNNobr]
+rnnScores = [accuracyRNNstup, accuracyRNNobr]
+
+plt.figure(figsize=(8,5))
+plt.plot(methods, knnScores, marker="o", label="kNN")
+plt.plot(methods, rnnScores, marker="o", label="rNN")
+plt.title("Сравнение точности методов")
+plt.ylabel("Accuracy")
+plt.grid(True)
+plt.legend()
+plt.show()
+
+# Время
+knn_times = [TimeKnn, TimeKnnObr]
+rnn_times = [TimeRnn, TimeRnnObr]
+
+plt.figure(figsize=(8,5))
+plt.plot(methods, knn_times, marker="o", label="kNN")
+plt.plot(methods, rnn_times, marker="o", label="rNN")
+plt.title("Сравнение времени работы")
+plt.ylabel("Время")
+plt.grid(True)
+plt.legend()
+plt.show()
