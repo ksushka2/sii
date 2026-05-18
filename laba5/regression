@@ -1,0 +1,244 @@
+import pandas as pd
+import numpy as np
+import time
+from sklearn.model_selection import KFold, train_test_split, cross_val_score, GridSearchCV
+from sklearn.preprocessing import PolynomialFeatures
+from sklearn.linear_model import LinearRegression, Ridge, RidgeCV
+from sklearn.metrics import mean_absolute_error, r2_score
+import matplotlib.pyplot as plt
+
+df = pd.read_csv("ML_MoscowObr.csv")
+print(f"\nРазмер датасета: {df.shape[0]} строк, {df.shape[1]} столбцов")
+
+X_raw = df.drop("price", axis=1)
+y_raw = df["price"]
+
+Xtrain, Xtest, ytrain, ytest = train_test_split(X_raw, y_raw, test_size=0.2, random_state=42)
+
+t0 = time.time()
+lr_raw = LinearRegression()
+lr_raw.fit(Xtrain, ytrain)
+pred_raw = lr_raw.predict(Xtest)
+time_raw = time.time() - t0
+
+mae_raw = mean_absolute_error(ytest, pred_raw)
+r2_raw = r2_score(ytest, pred_raw)
+
+print(f"Время выполнения: {time_raw:.4f} сек")
+print(f"MAE: {mae_raw:,.0f} руб")
+print(f"R2: {r2_raw:.4f}")
+
+print("\nКоэффициенты модели - сырые данные:")
+coef_df = pd.DataFrame({"Признак": X_raw.columns, "Вес": lr_raw.coef_})
+print(coef_df.to_string(index=False))
+
+print(f"\nСвободный член: {lr_raw.intercept_:,.0f}")
+
+print("Обработка + PolynomialFeatures + логарифмирование")
+
+df2 = df.copy()
+df2 = df2[df2["price"] < 50_000_000]
+df2 = df2[df2["totalArea"] < 150]
+df2 = df2[df2["kitchenArea"] < 40]
+df2 = df2[df2["floorsTotal"] < 40]
+
+print(f"После очистки: {df2.shape[0]} строк")
+
+#география
+center_lat, center_lon = 55.7558, 37.6173
+df2["dist_to_center"] = np.sqrt(
+    (df2["latitude"] - center_lat)**2 +
+    (df2["longitude"] - center_lon)**2
+)
+
+X = df2.drop("price", axis=1)
+y = df2["price"]
+y_log = np.log(y)
+
+#полиноминальные признаки
+
+poly = PolynomialFeatures(degree=2, include_bias=False)
+X_poly = poly.fit_transform(X)
+
+print(f"Размерность после PolynomialFeatures: {X_poly.shape}")
+
+#Кросс-валидация
+
+cv = KFold(n_splits=5, shuffle=True, random_state=42)
+t0 = time.time()
+#R2 по логарифмам
+r2_scores = cross_val_score(
+    LinearRegression(),
+    X_poly,
+    y_log,
+    cv=cv,
+    scoring="r2"
+)
+
+#MAE в рублях
+mae_scores = []
+
+for train_idx, val_idx in cv.split(X_poly):
+    X_train_cv, X_val_cv = X_poly[train_idx], X_poly[val_idx]
+    y_train_cv, y_val_cv = y_log.iloc[train_idx], y.iloc[val_idx]
+
+    model = LinearRegression()
+    model.fit(X_train_cv, y_train_cv)
+
+    y_pred_log = model.predict(X_val_cv)
+    y_pred = np.exp(y_pred_log)
+
+    mae_scores.append(mean_absolute_error(y_val_cv, y_pred))
+
+time_cv = time.time() - t0
+
+print(f"\nВремя выполнения: {time_cv:.4f} сек")
+print(f"R2 по фолдам: {[f'{x:.4f}' for x in r2_scores]}")
+print(f"Средний R2: {r2_scores.mean():.4f}")
+
+print(f"\nMAE по фолдам (руб): {[f'{x:,.0f}' for x in mae_scores]}")
+print(f"Средний MAE: {np.mean(mae_scores):,.0f} руб")
+
+#настройка
+plt.rcParams['font.size'] = 12
+plt.rcParams['axes.titlesize'] = 14
+plt.rcParams['axes.labelsize'] = 12
+
+#финальная модель для предсказаний
+final_model = LinearRegression()
+final_model.fit(X_poly, y_log)
+
+#получаем названия полиномиальных признаков
+poly_feature_names = poly.get_feature_names_out(X.columns)
+
+#создаём DataFrame с коэффициентами для всех полиномиальных признаков
+coef_poly_df = pd.DataFrame({
+    'Признак': poly_feature_names,
+    'Коэффициент': final_model.coef_
+})
+
+#свободный член
+print(f"\nСвободный член: {final_model.intercept_:,.2f}")
+
+coef_poly_df['abs_coef'] = np.abs(coef_poly_df['Коэффициент'])
+coef_poly_df = coef_poly_df.sort_values('abs_coef', ascending=False)
+
+top10 = coef_poly_df.head(10)
+print("\nОчищенные данные")
+for i, row in top10.iterrows():
+    short_name = row['Признак']
+    print(f"{short_name:25s} : {row['Коэффициент']:12.4f}")
+
+fig, ax = plt.subplots(1, 1, figsize=(12, 8))
+
+#топ10 признаков
+top10 = coef_poly_df.head(10).copy()
+top10['color'] = top10['Коэффициент'].apply(lambda x: 'green' if x > 0 else 'red')
+top10['short_name'] = top10['Признак']
+
+#горизонтальная гистограмма
+bars = ax.barh(top10['short_name'], top10['Коэффициент'], color=top10['color'], alpha=0.7)
+
+ax.set_xlabel('Вес коэффициента', fontsize=12)
+ax.set_ylabel('Признак', fontsize=12)
+ax.set_title('Топ-10 важнейших признаков (очищенные данные + полиномы)', fontsize=14)
+ax.axvline(x=0, color='black', linestyle='-', linewidth=1)
+
+#значения
+for bar, val in zip(bars, top10['Коэффициент']):
+    ax.text(val + (0.01 if val > 0 else -0.01), bar.get_y() + bar.get_height()/2,
+            f'{val:.3f}', va='center', ha='left' if val > 0 else 'right', fontsize=8)
+
+plt.tight_layout()
+plt.savefig('coefficients_clean_poly.png', dpi=150, bbox_inches='tight')
+plt.show()
+
+#предсказание на всём датасете
+y_pred_log = final_model.predict(X_poly)
+y_pred = np.exp(y_pred_log)
+y_true = y
+
+#ошибки
+errors = y_pred - y_true
+errors_pct = (errors / y_true) * 100
+
+fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+#исходный файл
+ax1 = axes[0]
+original_prices = pd.read_csv('ML_MoscowObr.csv')['price']
+ax1.hist(original_prices, bins=50, edgecolor='black', alpha=0.7, color='steelblue')
+ax1.set_xlabel('Цена')
+ax1.set_ylabel('Количество')
+ax1.set_title('Распределение цен (Исходный файл)')
+ax1.ticklabel_format(style='scientific', axis='x', scilimits=(6,6))
+
+#обработанный файл
+ax2 = axes[1]
+ax2.hist(y_true, bins=50, edgecolor='black', alpha=0.7, color='darkorange')
+ax2.set_xlabel('Цена (руб)')
+ax2.set_ylabel('Количество')
+ax2.set_title('Распределение цен (Обработанный файл)')
+ax2.ticklabel_format(style='scientific', axis='x', scilimits=(6,6))
+
+#для сравнения качества проверка регрессии на методе RandomForestRegressor
+
+from sklearn.ensemble import RandomForestRegressor
+
+print("RandomForest регрессия")
+
+Xtrain_rf, Xtest_rf, ytrain_rf, ytest_rf = train_test_split(X, y_log, test_size=0.2, random_state=42)
+
+print(f"Обучающая выборка: {Xtrain_rf.shape[0]} строк Тестовая выборка: {Xtest_rf.shape[0]} строк")
+print(f"Количество признаков: {Xtrain_rf.shape[1]}")
+
+rf_model = RandomForestRegressor(
+    n_estimators=100,#количество деревьев
+    max_depth=15,#максимальная глубина
+    random_state=42,
+    n_jobs=-1
+)
+rf_model.fit(Xtrain_rf, ytrain_rf)
+
+time_rf = time.time() - t0
+
+y_pred_log_rf = rf_model.predict(Xtest_rf)
+y_pred_rf = np.exp(y_pred_log_rf)
+ytest_rf_real = np.exp(ytest_rf)
+
+# считаем метрики
+mae_rf = mean_absolute_error(ytest_rf_real, y_pred_rf)
+r2_rf = r2_score(ytest_rf_real, y_pred_rf)
+
+print(f"\nВремя обучения: {time_rf:.2f} сек")
+print(f"MAE: {mae_rf:,.0f} руб")
+print(f"R2: {r2_rf:.4f}")
+
+y_pred_log_rf_full = rf_model.predict(X)
+y_pred_rf_full = np.exp(y_pred_log_rf_full)
+errors_rf_full = y_pred_rf_full - y_true
+
+fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+
+# LinearRegression
+ax1 = axes[0]
+ax1.scatter(y_true, y_pred, alpha=0.3, s=10, c='steelblue', edgecolors='none')
+max_val = max(y_true.max(), y_pred.max())
+ax1.plot([0, max_val], [0, max_val], 'r--', linewidth=2, label='Идеал')
+ax1.set_xlabel('Реальная цена')
+ax1.set_ylabel('Предсказанная цена')
+ax1.set_title(f'LinearRegression\nMAE: {np.mean(mae_scores):,.0f} руб, R2: {r2_scores.mean():.4f}')
+ax1.ticklabel_format(style='scientific', axis='both', scilimits=(6,6))
+
+# RandomForest
+ax2 = axes[1]
+ax2.scatter(y_true, y_pred_rf_full, alpha=0.3, s=10, c='darkgreen', edgecolors='none')
+ax2.plot([0, max_val], [0, max_val], 'r--', linewidth=2, label='Идеал')
+ax2.set_xlabel('Реальная цена')
+ax2.set_ylabel('Предсказанная цена')
+ax2.set_title(f'RandomForest\nMAE: {mae_rf:,.0f} руб, R2: {r2_rf:.4f}')
+ax2.ticklabel_format(style='scientific', axis='both', scilimits=(6,6))
+
+plt.tight_layout()
+plt.savefig('actual_vs_predicted_comparison.png', dpi=150, bbox_inches='tight')
+plt.show()
