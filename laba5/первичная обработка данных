@@ -1,1 +1,51 @@
+import pandas as pd
 
+dataFile = pd.read_csv('ml_moscow.csv')
+
+print("RAZMER:", dataFile.shape)
+
+print("5 strok")
+print(dataFile.head())
+
+print("data types")
+print(dataFile.dtypes)
+
+print("uniqe in 1 stolbec")
+print(dataFile['wallsMaterial'].unique())
+
+material = {
+    'brick': 1, #кирпич
+    'monolithBrick': 2, #монолит-кирпич
+    'panel': 3, #панель
+    'block': 4, #блок
+    'monolith': 5, #монолит
+    'stalin': 6, #сталинка
+    'wood': 7, #деревянный
+    'old': 8 #старый фонд
+}
+
+dataFile['wallsMaterial_new'] = dataFile['wallsMaterial'].map(material)
+
+print("Uniq in в wallsMaterial and they int:")
+print(dataFile[['wallsMaterial', 'wallsMaterial_new']].drop_duplicates().sort_values('wallsMaterial'))
+
+nan_count = dataFile['wallsMaterial'].isna().sum()
+print(f"\nall None in wallsMaterial: {nan_count}")
+
+print(dataFile.isnull().sum())
+print(dataFile.dtypes)
+
+numeric_columns = ['floorNumber', 'floorsTotal', 'totalArea', 'kitchenArea',
+                   'latitude', 'longitude', 'price']
+
+print("\nint stolb not null?")
+for col in numeric_columns:
+    nulls = dataFile[col].isnull().sum()
+    if nulls > 0:
+        print(f"{col}: {nulls} propuski")
+    else:
+        print(f"{col}: cool")
+
+df_final = dataFile.drop('wallsMaterial', axis=1)
+df_final = df_final.rename(columns={'wallsMaterial_new': 'wallsMaterial'})
+df_final.to_csv('ML_MoscowObr.csv', index=False)
